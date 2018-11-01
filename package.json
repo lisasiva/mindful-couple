@@ -1,0 +1,15 @@
+{
+  "name": "thanksdear",
+  "version": "1.0.0",
+  "description": "Daily Gratitude skill, rewritten with ask-sdk",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "thanks-dear"
+  },
+  "author": "Lisa Siva <lisashantisiva@gmail.com>",
+  "license": "ISC"
+}
