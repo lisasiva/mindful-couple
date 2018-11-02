@@ -1,16 +1,10 @@
-# Project Sub-folders #
-###################
-intents.json
-lambda_upload.zip
-package-lock.json
-package.json
-response.json
-event.json
-publish.sh
-run.sh
-git.sh
-
 # Project Files #
+###################
+*.json
+*.sh
+test.js
+
+# Project Sub-Folder #
 ###################
 events/
 sample code/
