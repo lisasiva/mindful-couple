@@ -11,5 +11,9 @@
     "url": "thanks-dear"
   },
   "author": "Lisa Siva <lisashantisiva@gmail.com>",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "ask-sdk": "^2.2.0",
+    "aws-sdk": "^2.346.0"
+  }
 }

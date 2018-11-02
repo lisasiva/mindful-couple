@@ -4,10 +4,13 @@
 const Alexa = require('ask-sdk');
 const AWS = require('aws-sdk');
 AWS.config.update( {region: 'us-east-1'} );
+const docClient = new AWS.DynamoDB.DocumentClient();
 const APP_NAME = 'Thanks Dear';
 const messages = {
-    NOTIFY_MISSING_PERMISSIONS: 'Please log into the Alexa app on your phone and toggle permissions on.',
-    ERROR: 'Uh oh. Something went wrong.'
+    NOTIFY_MISSING_PERMISSIONS_HAPPY: 'Thanks for your feedback! It would be really helpful to learn which parts you were happy with. If you\'re open to an email from the developer, please toggle on email permission in your Alexa companion app and try the skill again.',
+    NOTIFY_MISSING_PERMISSIONS_NOT_HAPPY: 'Thanks for your feedback! It would be really helpful to learn which parts you weren\'t happy with. If you\'re open to an email from the developer, please toggle on email permission in your Alexa companion app and try the skill again.',
+    ERROR: 'Uh oh. Something went wrong. To restart the skill, say <break time="0.05s"/> open ' + APP_NAME,
+    SURVEY: 'Before we stop, were you happy with this skill today? You can say <break time="0.03s"/> happy <break time="0.03s"/> or not happy.',
 };
 const EMAIL_PERMISSION = 'alexa::profile:email:read';
 
@@ -69,8 +72,8 @@ const NextIdeaIntentHandler = {
                 .getResponse();
         } else {
             const idea = getRandomItem(ideas);
-            const cta = ' <break time="0.5s"/> What do you think? You can say, <break time="0.05s"/>I\'ll do it! or <break time="0.05s"/>give me another idea';
-            const speechText = 'Here\'s another idea: <break time="0.3s"/>' + idea + cta;
+            const cta = ' <break time="0.5s"/> You can say, <break time="0.05s"/>I\'ll do it! or <break time="0.05s"/>give me another idea';
+            const speechText = 'How about this one? <break time="0.3s"/>' + idea + cta;
             const reprompt = 'You can say, <break time="0.05s"/>I\'ll do it! or <break time="0.05s"/>give me another idea.';
             return handlerInput.responseBuilder
                 .speak(speechText)
@@ -95,19 +98,173 @@ const DoItIntentHandler = {
                 .withSimpleCard(APP_NAME, wrongInvocationResponse)
                 .getResponse();
         } else {
+            attributes.FromDoItIntent = true;
+            handlerInput.attributesManager.setSessionAttributes(attributes);
             const praise = getRandomItem(praises);
             const factResults = getRandomFact(facts, factTitles, longFacts);
             const fact = factResults[0];
             const factTitle = factResults[1];
             const longFact = factResults[2];
-            const speechText = praise + ' Interestingly, ' + fact;
+            const speechText = praise + ' Interestingly, ' + fact + ' <break time="0.3s"/>' + messages.SURVEY;
             return handlerInput.responseBuilder
                 .speak(speechText)
                 .withSimpleCard(factTitle, longFact)
+                .withShouldEndSession(false)
                 .getResponse();   
         }
     }
 };
+
+const HappyIntentHandler = {
+    canHandle(handlerInput) {
+        const request = handlerInput.requestEnvelope.request;
+        return request.type === 'IntentRequest' && request.intent.name === 'HappyIntent';
+    },
+    async handle(handlerInput) {
+        const attributes = handlerInput.attributesManager.getSessionAttributes();
+        if (!attributes.FromDoItIntent) {
+        const wrongInvocationResponse = 'Were you trying to share feedback on this skill? My developer would really appreciate that! You can email your ideas to lisa@<prosody rate="slow"><say-as interpret-as="spell-out">heyhon.co</say-as></prosody>';
+        return handlerInput.responseBuilder
+            .speak(wrongInvocationResponse)
+            .withSimpleCard(APP_NAME, 'Happy with this skill? You can email feedback to lisa@heyhon.co')
+            .getResponse();
+        } else {
+            try {
+                const upsServiceClient = handlerInput.serviceClientFactory.getUpsServiceClient();
+                const profileEmail = await upsServiceClient.getProfileEmail();
+                const userId = handlerInput.requestEnvelope.session.user.userId;
+
+                const params = {
+                    TableName: 'HeyHonFeedback',
+                    Item: {
+                        'UserId': userId,
+                        'happy': true,
+                        'email': profileEmail
+                    }  
+                };
+
+                docClient.put(params, function (err,data) {
+                    if (err) {
+                        console.log('Error', err);
+                    } else {
+                        console.log('Success', data);
+                    }
+                });   
+
+                const speechText = 'I\'m so glad to hear it! Thanks for your feedback.';
+                return handlerInput.responseBuilder
+                    .speak(speechText)
+                    .withSimpleCard('Thanks for Your Feedback!', 'Lisa, the developer, will send you an email soon to thank you personally.')
+                    .getResponse();
+            } catch (error) {
+                console.log('ERROR HANDLING HAPPY INTENT: ' + JSON.stringify(error));
+                if (error.statusCode == 403) {
+                    const userId = handlerInput.requestEnvelope.session.user.userId;
+                    const params = {
+                        TableName: 'HeyHonFeedback',
+                        Item: {
+                            'UserId': userId,
+                            'happy': true,
+                        }  
+                    };
+
+                    docClient.put(params, function (err,data) {
+                        if (err) {
+                            console.log('Error', err);
+                        } else {
+                            console.log('Success', data);
+                        }
+                    });
+                    return handlerInput.responseBuilder
+                        .speak(messages.NOTIFY_MISSING_PERMISSIONS_HAPPY)
+                        .withAskForPermissionsConsentCard([EMAIL_PERMISSION])
+                        .getResponse();
+                } else {
+                    return handlerInput.responseBuilder
+                        .speak(ERROR)
+                        .getResponse();
+                }
+            }
+        }
+    }
+};
+
+const NotHappyIntentHandler = {
+    canHandle(handlerInput) {
+        const request = handlerInput.requestEnvelope.request;
+        return request.type === 'IntentRequest' && request.intent.name === 'NotHappyIntent';
+    },
+    async handle(handlerInput) {
+        const attributes = handlerInput.attributesManager.getSessionAttributes();
+        if (!attributes.FromDoItIntent) {
+        const wrongInvocationResponse = 'Were you trying to share feedback on this skill? My developer would really appreciate that! You can email your ideas to lisa@<prosody rate="slow"><say-as interpret-as="spell-out">heyhon.co</say-as></prosody>';
+        return handlerInput.responseBuilder
+            .speak(wrongInvocationResponse)
+            .withSimpleCard(APP_NAME, 'Not happy with this skill? You can email feedback to lisa@heyhon.co')
+            .getResponse();
+        } else {
+            try {
+                const upsServiceClient = handlerInput.serviceClientFactory.getUpsServiceClient();
+                const profileEmail = await upsServiceClient.getProfileEmail();
+                const userId = handlerInput.requestEnvelope.session.user.userId;
+
+                const params = {
+                    TableName: 'HeyHonFeedback',
+                    Item: {
+                        'UserId': userId,
+                        'happy': false,
+                        'email': profileEmail
+                    }  
+                };
+
+                docClient.put(params, function (err,data) {
+                    if (err) {
+                        console.log('Error', err);
+                    } else {
+                        console.log('Success', data);
+                    }
+                });   
+
+                const speechText = 'I\'m sorry to hear that! Thanks for your feedback.';
+                return handlerInput.responseBuilder
+                    .speak(speechText)
+                    .withSimpleCard('Your Feedback Means a Lot', 'Lisa, the developer, will be in touch by email about how she can make this skill better.')
+                    .getResponse();
+            } catch (error) {
+                console.log('ERROR HANDLING NOT HAPPY INTENT: ' + JSON.stringify(error));
+                if (error.statusCode == 403) {
+                    const userId = handlerInput.requestEnvelope.session.user.userId;
+                    const params = {
+                        TableName: 'HeyHonFeedback',
+                        Item: {
+                            'UserId': userId,
+                            'happy': false,
+                        }  
+                    };
+
+                    docClient.put(params, function (err,data) {
+                        if (err) {
+                            console.log('Error', err);
+                        } else {
+                            console.log('Success', data);
+                        }
+                    });
+                    return handlerInput.responseBuilder
+                        .speak(messages.NOTIFY_MISSING_PERMISSIONS_NOT_HAPPY)
+                        .withAskForPermissionsConsentCard([EMAIL_PERMISSION])
+                        .getResponse();
+                } else {
+                    return handlerInput.responseBuilder
+                        .speak(ERROR)
+                        .getResponse();
+                }
+            }
+        }
+    }
+};
+
+
+        
 
 //===================================
 // HELP, STOP, AND ERROR HANDLERS
@@ -139,7 +296,7 @@ const CancelAndStopIntentHandler = {
     }
 };
 
-/*const ErrorHandler = {
+const ErrorHandler = {
   canHandle() {
     return true;
   },
@@ -151,7 +308,7 @@ const CancelAndStopIntentHandler = {
       .reprompt('Sorry, I can\'t understand the command. Please say again.')
       .getResponse();
   },
-};*/
+};
 
 //===================================
 // LOGGERS
@@ -257,13 +414,13 @@ const praises = [
 ];
 
 const facts = [
-    'practicing gratiude can even result in longer and better sleep.',
-    'gratitude increases relationship satisfaction as soon as the next day.',
-    'close others actually notice when you practice gratitude.',
-    'gratitude may have the biggest impact on happiness, compared to other positive psychology practices.',
-    'practicing gratitude may increase happiness for at least a month.',
-    'feeling appreciated by your partner may increase your commitment to the relationship.',
-    'practicing gratitude is an upward cycle.'
+    'gratitude can result in better sleep.',
+    'gratitude today may increase relationship satisfaction tomorrow.',
+    'close others notice when you practice gratitude.',
+    'gratitude may have a big impact on happiness.',
+    'gratitude may increase happiness for up to a month.',
+    'gratitude may increase relationship commitment.',
+    'when you\'re grateful, your partner feels grateful too.'
 ];
 
 const factTitles = [
@@ -298,11 +455,13 @@ exports.handler = skillBuilder
         IdeaIntentHandler,
         NextIdeaIntentHandler,
         DoItIntentHandler,
+        HappyIntentHandler,
+        NotHappyIntentHandler,
         HelpIntentHandler,
         CancelAndStopIntentHandler
     )
     .addRequestInterceptors(RequestLog)
     .addResponseInterceptors(ResponseLog)
-    //.addErrorHandlers(ErrorHandler)
-    //.withApiClient(new Alexa.DefaultApiClient())
+    .addErrorHandlers(ErrorHandler)
+    .withApiClient(new Alexa.DefaultApiClient())
     .lambda();
