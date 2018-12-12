@@ -5,10 +5,11 @@
 // GLOBAL VARIABLES
 //===================================
 
-// Importing SDKs
+// Importing Node Modules
 const Alexa = require('ask-sdk');
 const AWS = require('aws-sdk');
 AWS.config.update( {region: 'us-east-1'} );
+const rp = require('request-promise');
 
 // Configuring DynamoDB
 const dbHelper = require('./helpers/dbHelper');
@@ -25,6 +26,7 @@ const messages = {
     REPEAT_WELCOME: 'Welcome back to ' + APP_NAME + '! <break time="0.05s"/> To hear today\'s gratitude idea, say <break time="0.05s"/> give me an idea.'
 };
 const EMAIL_PERMISSION = 'alexa::profile:email:read';
+const REMINDER_PERMISSION = 'alexa::alerts:reminders:skill:readwrite';
 
 // Importing Arrays
 const ideas = require('./arrays/ideas');
@@ -36,6 +38,11 @@ const longFacts = factArrays.longFacts;
 
 // Helper Functions
 const random = require('./helpers/randomHelper');
+const reminder = require('./helpers/reminderHelper');
+
+// Day Helpers
+const dayHelper = require('./helpers/dayHelper');
+const setDay = dayHelper.day();
 
 //===================================
 // LAUNCH HANDLER
@@ -313,7 +320,7 @@ const NoIntentHandler = {
         }
     }
 };
-        
+
 
 //===================================
 // HELP, STOP, AND ERROR HANDLERS
@@ -363,6 +370,53 @@ const ErrorHandler = {
   },
 };
 
+//===================================
+// REMINDER INTENT HANDLER
+//===================================
+
+const ReminderIntentHandler = {
+    canHandle(handlerInput) {
+        const request = handlerInput.requestEnvelope.request;
+        return request.type === 'IntentRequest' && (request.intent.name === 'ReminderIntent');
+    },
+    handle(handlerInput) {
+        return reminder.getReminders(handlerInput)
+        .then((result) => {
+            if (result === false) {
+                return reminder.setReminder(handlerInput)
+                    .then((result) => {
+                      if (result === 'OK') {
+                        const speech = `Okay. I've set a weekly gratitude reminder for ${setDay[0]}s at 7 AM. You can change the time or delete this reminder in your Alexa app.`;
+                        return handlerInput.responseBuilder
+                          .speak(speech)
+                          .withShouldEndSession(true)
+                          .getResponse();
+                      } else if (result === 'UNAUTHORIZED') {
+                        // Get their permission to show a reminder
+                        return handlerInput.responseBuilder
+                          .speak(`Please check your Alexa app to grant ${APP_NAME} permission to set reminders.`)
+                          .withAskForPermissionsConsentCard([REMINDER_PERMISSION])
+                          .withShouldEndSession(true)
+                          .getResponse();
+                      } else {
+                        // Some other problem not auth-related
+                        return handlerInput.responseBuilder
+                          .speak('There was a problem setting your reminder. Please give us another try later.')
+                          .withShouldEndSession(true)
+                          .getResponse();
+                      }
+                    });                  
+            } else {
+                speechText = `You already have a weekly gratitude reminder set for every ${dayHelper.fullDay(result)}. Go you!`;
+                return handlerInput.responseBuilder
+                    .speak(speechText)
+                    .withShouldEndSession(true)
+                    .withSimpleCard(APP_NAME, speechText)
+                    .getResponse();
+            }    
+        });       
+    }
+};
 
 //===================================
 // EXPORTING
@@ -379,8 +433,9 @@ exports.handler = skillBuilder
         YesIntentHandler,
         NoIntentHandler,
         HelpIntentHandler,
-        CancelAndStopIntentHandler
+        CancelAndStopIntentHandler,
+        ReminderIntentHandler
     )
-    .addErrorHandlers(ErrorHandler)
+    //.addErrorHandlers(ErrorHandler)
     .withApiClient(new Alexa.DefaultApiClient())
     .lambda();
