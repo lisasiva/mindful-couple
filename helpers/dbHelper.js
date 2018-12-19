@@ -8,13 +8,14 @@ const tableName = "TestOnly";
 var dbHelper = function () { };
 var docClient = new AWS.DynamoDB.DocumentClient();
 
-dbHelper.prototype.addUser = (userId, profileEmail) => {
+dbHelper.prototype.addUser = (userId, profileEmail, timestamp) => {
     return new Promise((resolve, reject) => {
         const params = {
             TableName: tableName,
             Item: {
               'UserId' : userId,
-              'profileEmail': profileEmail
+              'profileEmail': profileEmail,
+              'lastVisit': timestamp,               
             }
         };
         docClient.put(params, (err, data) => {
@@ -63,6 +64,26 @@ dbHelper.prototype.updateEmail = (userId, profileEmail) => {
                 return reject("Unable to add email");
             }
             console.log("Saved user's email, ", JSON.stringify(data));
+            resolve(data);
+        });
+    });
+}
+
+dbHelper.prototype.updateReminder = (userId, reminder) => {
+    return new Promise((resolve, reject) => {
+        const params = {
+            TableName: tableName,
+            Key: {'UserId' : userId},
+            UpdateExpression: 'set reminder = :r',
+            ExpressionAttributeValues: { ':r' : reminder}
+
+        };
+        docClient.update(params, (err, data) => {
+            if (err) {
+                console.log("Unable to add reminder boolean to user =>", JSON.stringify(err))
+                return reject("Unable to add email");
+            }
+            console.log("Saved user's reminder boolean, ", JSON.stringify(data));
             resolve(data);
         });
     });
